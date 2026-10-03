@@ -1,162 +1,193 @@
 'use client'
 
-import React, { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useRouter } from 'next/navigation'
 
-export default function Home() {
-  const [loading, setLoading] = useState(false)
-  const [successMessage, setSuccessMessage] = useState('')
-  const [errorMessage, setErrorMessage] = useState('')
+export default function DashboardPage() {
+  const [user, setUser] = useState<any>(null)
+  const router = useRouter()
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setLoading(true)
-    setSuccessMessage('')
-    setErrorMessage('')
-
-    const formData = new FormData(e.currentTarget)
-    const title = formData.get('title') as string
-    const category = formData.get('category') as string
-    const location = formData.get('location') as string
-    const description = formData.get('description') as string
-    const secret_clue = formData.get('secret_clue') as string
-
-    try {
-      // บันทึกลงตาราง lost_items ใน Supabase
-      const { error } = await supabase.from('lost_items').insert([
-        {
-          title,
-          category,
-          location,
-          description,
-          secret_clue,
-          status: 'searching'
-        }
-      ])
-
-      if (error) throw error
-
-      setSuccessMessage('🕵️‍♂️ เปิดเคสสืบสวนสำเร็จ! ระบบกำลังช่วยตามหาของให้คุณ...')
-      ;(e.target as HTMLFormElement).reset()
-    } catch (error: any) {
-      setErrorMessage('เกิดข้อผิดพลาด: ' + error.message)
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    async function checkUser() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        router.push('/login')
+      } else {
+        setUser(session.user)
+      }
     }
+    checkUser()
+  }, [router])
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push('/login')
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-12 flex flex-col items-center">
-      <div className="max-w-xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
-        
-        {/* Header */}
-        <div className="text-center mb-8">
-          <span className="bg-amber-500/10 text-amber-400 text-xs font-semibold px-3 py-1 rounded-full border border-amber-500/20">
-            AI Detective Agency
-          </span>
-          <h1 className="text-3xl font-bold mt-3 text-white tracking-wide">
-            Lost & Found Detective
+    <div className="relative min-h-screen w-full text-gray-800 p-6 md:p-10 overflow-x-hidden">
+      
+      {/* รูปพื้นหลัง dashboard.png */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center z-0"
+        style={{ backgroundImage: `url('/dashboard.png')` }}
+      />
+      <div className="absolute inset-0 bg-black/20 z-0" />
+
+      <div className="relative z-10 max-w-6xl mx-auto">
+        {/* แถบ Header ด้านบน */}
+        <div className="flex flex-col md:flex-row justify-between items-center mb-10 bg-white/15 backdrop-blur-md p-4 rounded-2xl border border-white/20 text-white shadow-lg gap-4">
+          
+          {/* ส่วนหัวข้อบอร์ด */}
+          <h1 className="text-2xl font-bold tracking-wide flex items-center gap-2">
+            <span>🔍</span> Lost & Found Detective Board
           </h1>
-          <p className="text-slate-400 text-sm mt-2">
-            กรอกเบาะแสของที่หาย เพื่อให้ AI ของเราช่วยวิเคราะห์และตามหาให้ครับ
-          </p>
+
+          {/* ส่วนโปรไฟล์นักสืบ + ปุ่มออกจากระบบ */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 bg-black/20 px-3 py-1.5 rounded-xl border border-white/10">
+              <div className="w-10 h-10 rounded-full overflow-hidden bg-white/25 border-2 border-amber-300 flex items-center justify-center shadow relative">
+                <img 
+                  src="/profile.png" 
+                  alt="โปรไฟล์นักสืบ" 
+                  className="w-full h-full object-cover"
+                  onError={(e)=>{
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <span className="absolute text-xs">🕵️‍♂️</span>
+              </div>
+              <div className="flex flex-col text-left">
+                <span className="text-xs font-semibold text-white">นักสืบ</span>
+                <span className="text-xs text-amber-200 truncate max-w-[160px]">{user?.email || 'กำลังโหลด...'}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-red-600/80 hover:bg-red-600 text-white text-xs font-semibold rounded-xl shadow transition whitespace-nowrap"
+            >
+              ออกจากระบบ
+            </button>
+          </div>
+
         </div>
 
-        {/* Alerts */}
-        {successMessage && (
-          <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-sm">
-            {successMessage}
-          </div>
-        )}
-        {errorMessage && (
-          <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-sm">
-            {errorMessage}
-          </div>
-        )}
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
-              ชื่อสิ่งของที่หาย (Title)
-            </label>
-            <input
-              type="text"
-              name="title"
-              required
-              placeholder="เช่น กระเป๋าสตางค์หนังสีดำ, iPhone 15"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition"
-            />
+        {/* บอร์ดจำลอง (Corkboard Grid) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-10 pt-4">
+          
+          {/* การ์ดที่ 1: พบเจอสิ่งของ */}
+          <div className="relative w-full max-w-xs mx-auto">
+            <div 
+              onClick={() => router.push('/found')}
+              className="bg-white rounded-sm shadow-2xl p-4 pb-8 transform -rotate-1 hover:rotate-0 transition duration-300 cursor-pointer border border-gray-200 relative z-10 group flex flex-col justify-between h-full"
+            >
+              <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 w-4 h-4 bg-red-600 rounded-full shadow-md border border-red-800 z-20" />
+              <div className="h-80 w-full rounded-sm overflow-hidden mb-4 bg-gray-100 shadow-inner">
+                <img 
+                  src="/1.png" 
+                  alt="พบเจอสิ่งของ" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                />
+              </div>
+              <div className="text-center font-bold text-gray-800 tracking-wide text-sm">
+                <span className="bg-yellow-300 px-2 py-0.5 rounded shadow-sm inline-block">พบเจอสิ่งของ</span>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                หมวดหมู่ (Category)
-              </label>
-              <select
-                name="category"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500 transition"
+          {/* การ์ดที่ 2: เปิดเคสของหาย (มีกรอบรูปซ้อนด้านหลัง) */}
+          <div className="relative w-full max-w-xs mx-auto">
+            <div className="absolute inset-0 bg-white/80 rounded-sm shadow-xl transform rotate-6 scale-105 pointer-events-none border border-gray-300" />
+            
+            <div 
+              onClick={() => router.push('')}
+              className="bg-white rounded-sm shadow-2xl p-4 pb-8 transform rotate-1 hover:rotate-0 transition duration-300 cursor-pointer border border-gray-200 relative z-10 group flex flex-col justify-between h-full"
+            >
+              <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 w-4 h-4 bg-blue-600 rounded-full shadow-md border border-blue-800 z-20" />
+              <div className="h-80 w-full rounded-sm overflow-hidden mb-4 bg-gray-100 shadow-inner">
+                <img 
+                  src="https://images.unsplash.com/photo-1507679799987-c73779587ccf?q=80&w=600&auto=format&fit=crop" 
+                  alt="เปิดเคสของหาย" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                />
+              </div>
+              <div className="text-center font-bold text-gray-800 tracking-wide text-sm">
+                <span className="bg-yellow-300 px-2 py-0.5 rounded shadow-sm inline-block">เปิดเคสของหาย</span>
+              </div>
+            </div>
+          </div>
+
+          {/* การ์ดที่ 3: ของหายทั้งหมด */}
+          <div className="relative w-full max-w-xs mx-auto">
+            <div 
+              onClick={() => alert('ไปหน้าของหายทั้งหมด')}
+              className="bg-white rounded-sm shadow-2xl p-4 pb-8 transform -rotate-2 hover:rotate-0 transition duration-300 cursor-pointer border border-gray-200 relative z-10 group flex flex-col justify-between h-full"
+            >
+              <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 w-4 h-4 bg-yellow-500 rounded-full shadow-md border border-yellow-700 z-20" />
+              <div className="h-80 w-full rounded-sm overflow-hidden mb-4 bg-gray-100 shadow-inner">
+                <img 
+                  src="/3.png" 
+                  alt="ของหายทั้งหมด" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                />
+              </div>
+              <div className="text-center font-bold text-gray-800 tracking-wide text-sm">
+                <span className="bg-yellow-300 px-2 py-0.5 rounded shadow-sm inline-block">ของหายทั้งหมด</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 2 การ์ดล่าง จัดให้อยู่กึ่งกลางหน้าจอ */}
+          <div className="col-span-full flex flex-col md:flex-row justify-center items-center gap-10 mt-4">
+            
+            {/* การ์ดที่ 4: จดหมาย (มีกรอบรูปซ้อนด้านหลัง) */}
+            <div className="relative w-full max-w-xs mx-auto">
+              <div className="absolute inset-0 bg-white/80 rounded-sm shadow-xl transform -rotate-6 scale-105 pointer-events-none border border-gray-300" />
+
+              <div 
+                onClick={() => alert('ไปหน้าจดหมาย')}
+                className="bg-white rounded-sm shadow-2xl p-4 pb-8 transform rotate-2 hover:rotate-0 transition duration-300 cursor-pointer border border-gray-200 relative z-10 group flex flex-col justify-between h-full"
               >
-                <option value="electronics">อุปกรณ์อิเล็กทรอนิกส์</option>
-                <option value="wallet_keys">กระเป๋าเงิน / กุญแจ</option>
-                <option value="accessories">เครื่องประดับ / นาฬิกา</option>
-                <option value="documents">เอกสารสำคัญ</option>
-                <option value="others">อื่นๆ</option>
-              </select>
+                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 w-4 h-4 bg-green-600 rounded-full shadow-md border border-green-800 z-20" />
+                <div className="h-80 w-full rounded-sm overflow-hidden mb-4 bg-amber-50/60 shadow-inner flex items-center justify-center">
+                  <img 
+                    src="/4.png" 
+                    alt="จดหมาย" 
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                  />
+                </div>
+                <div className="text-center font-bold text-gray-800 tracking-wide text-sm">
+                  <span className="bg-yellow-300 px-2 py-0.5 rounded shadow-sm inline-block">จดหมาย</span>
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                สถานที่คาดว่าทำหาย (Location)
-              </label>
-              <input
-                type="text"
-                name="location"
-                required
-                placeholder="เช่น BTS สยาม, คาเฟ่แถวอารีย์"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition"
-              />
+            {/* การ์ดที่ 5: สิ่งของใกล้เคียงกับที่ทำหาย */}
+            <div className="relative w-full max-w-xs mx-auto">
+              <div 
+                onClick={() => alert('ไปหน้า AI Matching สิ่งของใกล้เคียง')}
+                className="bg-white rounded-sm shadow-2xl p-4 pb-8 transform -rotate-1 hover:rotate-0 transition duration-300 cursor-pointer border border-gray-200 relative z-10 group flex flex-col justify-between h-full"
+              >
+                <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 w-4 h-4 bg-purple-600 rounded-full shadow-md border border-purple-800 z-20" />
+                <div className="h-80 w-full rounded-sm overflow-hidden mb-4 bg-amber-50/60 shadow-inner flex items-center justify-center">
+                  <img 
+                    src="/2.png" 
+                    alt="สิ่งของใกล้เคียงกับที่ทำหาย (AI Matching)" 
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                  />
+                </div>
+                <div className="text-center font-bold text-gray-800 tracking-wide text-sm">
+                  <span className="bg-yellow-300 px-2 py-0.5 rounded shadow-sm inline-block">สิ่งของใกล้เคียงกับที่ทำหาย (AI Matching)</span>
+                </div>
+              </div>
             </div>
+
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
-              รายละเอียดและตำหนิ (Description)
-            </label>
-            <textarea
-              name="description"
-              rows={3}
-              required
-              placeholder="ระบุสี รอยขีดข่วน หรือสติกเกอร์ที่ติดอยู่ เพื่อเพิ่มความแม่นยำในการ Matching"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition resize-none"
-            ></textarea>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-amber-400 mb-1.5">
-              🔐 ความลับยืนยันความเป็นเจ้าของ (Secret Clue)
-            </label>
-            <input
-              type="text"
-              name="secret_clue"
-              required
-              placeholder="เช่น มีรูปหน้าจอล็อกเป็นรูปแมว, รอยขีดข่วนมุมขวาบน"
-              className="w-full bg-slate-950 border border-amber-500/30 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition"
-            />
-            <p className="text-xs text-slate-500 mt-1">ข้อมูลนี้จะถูกซ่อนไว้ ใช้สำหรับยืนยันเมื่อมีคนเจอของชิ้นนี้</p>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold py-3.5 rounded-xl transition shadow-lg shadow-amber-500/10 disabled:opacity-50 mt-2"
-          >
-            {loading ? 'กำลังเปิดเคสสืบสวน...' : '🚀 เปิดเคสแจ้งของหาย (Submit Case)'}
-          </button>
-        </form>
-
+        </div>
       </div>
-    </main>
+    </div>
   )
 }
