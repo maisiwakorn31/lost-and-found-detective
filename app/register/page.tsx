@@ -28,28 +28,39 @@ export default function RegisterPage() {
       return
     }
 
-    // สมัครสมาชิกผ่าน Supabase Auth พร้อมเก็บข้อมูลเพิ่มเติมใน user_metadata
-    const { error } = await supabase.auth.signUp({
+    // 1. สมัครสมาชิกผ่าน Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: {
-          full_name: fullName,
-          student_id: studentId,
-          major: major,
-        },
-      },
     })
 
     if (error) {
       setErrorMessage(error.message)
       setLoading(false)
-    } else {
-      setMessage('สมัครสมาชิกสำเร็จ! กำลังพากลับไปหน้า Login...')
-      setTimeout(() => {
-        router.push('/login')
-      }, 2000)
+      return
     }
+
+    // 2. บันทึกข้อมูลโปรไฟล์ลงในตาราง 'profiles' ทันที
+    if (data.user) {
+      const { error: profileError } = await supabase.from('profiles').insert([
+        {
+          id: data.user.id,
+          email: email,
+          full_name: fullName,
+          student_id: studentId,
+          major: major,
+        },
+      ])
+
+      if (profileError) {
+        console.error('Error inserting profile:', profileError.message)
+      }
+    }
+
+    setMessage('สมัครสมาชิกสำเร็จ! กำลังพากลับไปหน้า Login...')
+    setTimeout(() => {
+      router.push('/login')
+    }, 2000)
   }
 
   return (
@@ -71,7 +82,6 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleRegister} className="space-y-4">
-          {/* ชื่อ - นามสกุล */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
               ชื่อ - นามสกุล
@@ -86,7 +96,6 @@ export default function RegisterPage() {
             />
           </div>
 
-          {/* รหัสนิสิต */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
               รหัสนิสิต
@@ -101,7 +110,6 @@ export default function RegisterPage() {
             />
           </div>
 
-          {/* Dropdown สาขาวิชา */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
               สาขาวิชา
@@ -120,7 +128,6 @@ export default function RegisterPage() {
             </select>
           </div>
 
-          {/* Email Address */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
               Email Address
@@ -135,7 +142,6 @@ export default function RegisterPage() {
             />
           </div>
 
-          {/* Password */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
               Password
@@ -150,7 +156,6 @@ export default function RegisterPage() {
             />
           </div>
 
-          {/* Confirm Password */}
           <div>
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
               ยืนยันรหัสผ่าน (Confirm Password)
