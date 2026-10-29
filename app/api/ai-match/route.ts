@@ -14,6 +14,26 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || 'placeholder-api-key' 
 });
 
+// ฟังก์ชันแปลงรูปภาพจาก URL ให้เป็น Part object ที่ Gemini รองรับ
+async function fileToGenerativePart(imageUrl: string) {
+  try {
+    const response = await fetch(imageUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    const base64Data = Buffer.from(arrayBuffer).toString('base64');
+    const mimeType = response.headers.get('content-type') || 'image/jpeg';
+    
+    return {
+      inlineData: {
+        data: base64Data,
+        mimeType
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching image for AI:', error);
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -22,52 +42,47 @@ export async function POST(request: Request) {
     const lostTitle = lostItem?.title || '';
     const lostCategory = lostItem?.category || '';
     const lostLocation = lostItem?.location || '';
+    const lostImageUrl = lostItem?.image_url;
 
     const foundTitle = foundItem?.title || '';
     const foundCategory = foundItem?.category || '';
     const foundLocation = foundItem?.location || '';
+    const foundImageUrl = foundItem?.image_url;
 
     let matchScore = 0;
     let reasoning = '';
 
-    // เช็กเบื้องต้นก่อนส่ง AI: ถ้าคนละประเภทกันอย่างชัดเจน ตัดคะแนนทิ้งทันที
-    const lostTitleLower = lostTitle.toLowerCase();
-    const foundTitleLower = foundTitle.toLowerCase();
-
-    // กฎสำรอง (Fallback / Quick Check)
-    const isPenLost = lostTitleLower.includes('ปากกา');
-    const isPenFound = foundTitleLower.includes('ปากกา');
-    const isKeyLost = lostTitleLower.includes('กุญแจ');
-    const isKeyFound = foundTitleLower.includes('กุญแจ');
-
-    if ((isPenLost && isKeyFound) || (isKeyLost && isPenFound)) {
-      // คนละประเภทชัดเจน
-      return NextResponse.json({
-        success: true,
-        matchScore: 5,
-        analysis: 'สิ่งของคนละประเภทกันอย่างชัดเจน (ปากกา กับ กุญแจ)'
-      });
-    }
-
-    // เรียกใช้งาน Gemini AI
     if (process.env.GEMINI_API_KEY) {
       try {
-        const prompt = `คุณคือ AI วิเคราะห์ของหาย (Lost & Found Detector)
-เปรียบเทียบสิ่งของ 2 รายการนี้:
+        const contents: any[] = [
+          `คุณคือ AI วิเคราะห์ของหาย (Lost & Found Detective) ที่มีความสามารถในการมองเห็นภาพถ่าย
+เปรียบเทียบสิ่งของ 2 รายการนี้ทั้งจาก "ข้อความ" และ "รูปภาพ":
+
 1. ของหาย: "${lostTitle}" (หมวดหมู่: ${lostCategory}, สถานที่: ${lostLocation})
 2. ของที่พบ: "${foundTitle}" (หมวดหมู่: ${foundCategory}, สถานที่: ${foundLocation})
 
 เกณฑ์การประเมิน:
-- ถ้าเป็นสิ่งของชนิดเดียวกัน (เช่น ปากกากับปากกา) ให้คะแนน 80-95%
-- ถ้าสถานที่ใกล้เคียงกัน เพิ่มคะแนน
-- ถ้าสิ่งของต่างชนิดกัน ให้คะแนนต่ำกว่า 20%
+- หากตรวจสอบจากรูปภาพแล้วพบว่าเป็นสิ่งของชิ้นเดียวกัน สีเดียวกัน หรือลักษณะตรงกัน ให้คะแนนสูง (85-95%)
+- หากเป็นสิ่งของคนละประเภทกันอย่างชัดเจน (เช่น ปากกากับกุญแจ) ให้คะแนนต่ำกว่า 20%
+- ให้วิเคราะห์เปรียบเทียบรูปภาพประกอบด้วย
 
 ตอบในรูปแบบ JSON ดังนี้เท่านั้น:
-{"matchScore": <0-100>, "reasoning": "<สรุปสั้นๆ 1 ประโยค>"}`;
+{"matchScore": <0-100>, "reasoning": "<สรุปผลการวิเคราะห์รูปภาพและข้อความสั้นๆ 1 ประโยค>"}`
+        ];
+
+        // ถ้ามีรูปภาพทั้ง 2 ฝั่ง ให้แนบรูปภาพเข้าไปให้ Gemini วิเคราะห์ด้วย
+        if (lostImageUrl) {
+          const lostImgPart = await fileToGenerativePart(lostImageUrl);
+          if (lostImgPart) contents.push(lostImgPart);
+        }
+        if (foundImageUrl) {
+          const foundImgPart = await fileToGenerativePart(foundImageUrl);
+          if (foundImgPart) contents.push(foundImgPart);
+        }
 
         const response = await ai.models.generateContent({
           model: 'gemini-2.5-flash',
-          contents: prompt,
+          contents: contents,
         });
 
         const text = response.text || '';
@@ -78,22 +93,13 @@ export async function POST(request: Request) {
           reasoning = parsed.reasoning || '';
         }
       } catch (e) {
-        console.error('Gemini API Error, using fallback rule:', e);
+        console.error('Gemini Multimodal API Error:', e);
+        matchScore = 50;
+        reasoning = 'วิเคราะห์ผ่านระบบสำรองเนื่องจากขัดข้องชั่วคราว';
       }
     }
 
-    // หาก Gemini ไม่คืนค่า ใช้วิธีคำนวณเบื้องต้นสำรอง
-    if (matchScore === 0) {
-      if ((isPenLost && isPenFound) || (isKeyLost && isKeyFound) || (lostTitleLower === foundTitleLower)) {
-        matchScore = 85;
-        reasoning = `สิ่งของมีชื่อและลักษณะตรงกัน ("${lostTitle}")`;
-      } else {
-        matchScore = 20;
-        reasoning = 'รูปพรรณสัณฐานยังมีความแตกต่างกัน';
-      }
-    }
-
-    // ส่งอีเมลผ่าน Resend หากคะแนน >= 80%
+    // เงื่อนไขส่งอีเมลเมื่อคะแนน >= 80%
     const ownerId = lostItemOwnerId || lostItem?.user_id || lostItem?.owner_id;
     if (matchScore >= 80 && ownerId) {
       const { data: userData } = await (supabase
