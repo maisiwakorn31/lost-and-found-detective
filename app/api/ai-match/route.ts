@@ -12,8 +12,8 @@ const supabase = createClient(
 );
 
 // กำหนดค่าเริ่มต้นให้กับ Gemini AI (พร้อมสำรองตัวแปรตอน Build)
-const ai = new GoogleGenAI({ 
-  apiKey: process.env.GEMINI_API_KEY || 'placeholder-api-key' 
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY || 'placeholder-api-key'
 });
 
 export async function POST(request: Request) {
@@ -39,31 +39,23 @@ export async function POST(request: Request) {
 
     // 2. สร้าง Prompt ที่มี Strict Rules ป้องกัน AI ให้คะแนนผิดประเภท
     const prompt = `คุณคือระบบ AI Detective วิเคราะห์และจับคู่ของหาย (Lost & Found Matching System)
-
 โปรดวิเคราะห์ข้อมูลสิ่งของ 2 ชิ้นด้านล่างนี้ และคำนวณคะแนนความสอดคล้อง (0 - 100%):
 
 [รายการที่ 1 - ของหาย]
-- ชื่อ: ${lostTitle}
-- หมวดหมู่: ${lostCategory}
-- รายละเอียด: ${lostDesc}
-- สถานที่: ${lostLocation}
+- ชื่อ: ${lostTitle} (- ${lostDesc}) - สถานที่: ${lostLocation}
 
 [รายการที่ 2 - ของที่พบ]
-- ชื่อ: ${foundTitle}
-- หมวดหมู่: ${foundCategory}
-- รายละเอียด: ${foundDesc}
-- สถานที่: ${foundLocation}
+- ชื่อ: ${foundTitle} (- ${foundDesc}) - สถานที่: ${foundLocation}
 
----
-กฎเหล็กในการคำนวณคะแนน (Strict Rules):
-1. **ประเภทสิ่งของ (Item Type):** หากสิ่งของเป็นคนละประเภทกันอย่างชัดเจน (เช่น "ปากกา" กับ "กุญแจ", "โทรศัพท์" กับ "หมวก") ให้คะแนนความสอดคล้อง (matchScore) **ไม่เกิน 10% เท่านั้น** ห้ามนำสถานที่หรือหมวดหมู่ "อื่นๆ" มาทำให้คะแนนสูงเด็ดขาด
-2. **สถานที่/พิกัด:** ให้ใช้วิเคราะห์เพื่อเพิ่มคะแนนก็ต่อเมื่อสิ่งของเป็นประเภทเดียวกันแล้วเท่านั้น
-3. **การจับคู่ถูกต้อง:** สิ่งของประเภทเดียวกัน + ลักษณะสอดคล้องกัน + สถานที่ใกล้เคียงกัน ถึงจะใหม้คะแนนสูง (>= 80%)
+กฎการให้คะแนน:
+- หากเป็นสิ่งของประเภทเดียวกัน (เช่น ปากกากับปากกา) ให้คะแนนเริ่มต้นที่ 70% ทันที
+- หากสถานที่ใกล้เคียงกัน ให้บวกเพิ่มจนถึง 80-95%
+- หากคนละประเภทกันให้ให้คะแนนต่ำกว่า 20%
 
-ตอบกลับเป็นโครงสร้าง JSON Format ดังนี้เท่านั้น (ไม่ต้องใส่ Markdown formatting อื่นๆ นอกเหนือจาก JSON):
+ตอบกลับเป็น JSON Format เท่านั้น:
 {
   "matchScore": <ตัวเลข 0-100>,
-  "reasoning": "<สรุปเหตุผลการวิเคราะห์สั้นๆ ไม่เกิน 2 ประโยค>"
+  "reasoning": "<สรุปเหตุผลสั้นๆ>"
 }`;
 
     // เรียก Gemini AI เพื่อวิเคราะห์
@@ -73,7 +65,7 @@ export async function POST(request: Request) {
     });
 
     const aiResultText = response.text || '';
-    
+
     // 3. สกัดค่า matchScore และ reasoning จาก AI Response JSON
     let matchScore = 0;
     let reasoning = 'ไม่สามารถวิเคราะห์ข้อมูลได้';
