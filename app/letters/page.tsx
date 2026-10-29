@@ -29,6 +29,7 @@ export default function LettersPage() {
       }
       setUser(session.user)
 
+      // ดึงข้อมูลรายการของหาย ของที่พบ และข้อความแชท
       const [lostRes, foundRes, msgRes] = await Promise.all([
         supabase.from('lost_items').select('*').order('created_at', { ascending: false }),
         supabase.from('found_items').select('*').order('created_at', { ascending: false }),
@@ -38,50 +39,47 @@ export default function LettersPage() {
       const lostItems = lostRes.data || []
       const foundItems = foundRes.data || []
       const allMessages = msgRes.data || []
-      const matchedPairs: any[] = []
 
-      // 1. สร้าง Matched Pairs
-      lostItems.forEach(lost => {
-        foundItems.forEach(found => {
-          let score = 30
-          const reasons: string[] = []
-
-          if (lost.category && found.category && lost.category === found.category) {
-            score += 40
-            reasons.push(`หมวดหมู่ตรงกัน (${lost.category})`)
-          }
-
-          const lostWords = lost.title.toLowerCase().split(' ')
-          const foundTitle = found.title.toLowerCase()
-          const matchedTitleWords = lostWords.filter((w: string) => w.length > 1 && foundTitle.includes(w))
-          if (matchedTitleWords.length > 0) {
-            score += 30
-            reasons.push(`ชื่อสิ่งของคล้ายกัน ("${matchedTitleWords.join(', ')}")`)
-          }
-
-          const lostLoc = (lost.location || '').toLowerCase()
-          const foundLoc = (found.location || '').toLowerCase()
-          if (lostLoc && foundLoc && (lostLoc.includes(foundLoc) || foundLoc.includes(lostLoc))) {
-            score += 20
-            reasons.push(`สถานที่ใกล้เคียงกัน (${found.location})`)
-          }
-
-          if (score >= 40) {
-            matchedPairs.push({
-              id: `${lost.id}-${found.id}`,
-              lostItem: lost,
-              foundItem: found,
-              matchScore: Math.min(score, 99),
-              reasons,
-              date: new Date(found.created_at).toLocaleDateString('th-TH', {
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric'
+      // 1. ส่งให้ Gemini API (`/api/ai-match`) วิเคราะห์คะแนนจริง
+      const matchPromises = lostItems.flatMap(lost =>
+        foundItems.map(async (found) => {
+          try {
+            const res = await fetch('/api/ai-match', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                lostItem: lost,
+                foundItem: found,
+                lostItemOwnerId: lost.user_id || lost.owner_id
               })
             })
+
+            const data = await res.json()
+
+            // คัดเลือกเฉพาะคู่ที่ Gemini AI วิเคราะห์ได้คะแนน >= 40%
+            if (data.success && data.matchScore >= 40) {
+              return {
+                id: `${lost.id}-${found.id}`,
+                lostItem: lost,
+                foundItem: found,
+                matchScore: data.matchScore,
+                reasons: [data.analysis],
+                date: new Date(found.created_at).toLocaleDateString('th-TH', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric'
+                })
+              }
+            }
+          } catch (err) {
+            console.error('API Match error in LettersPage:', err)
           }
+          return null
         })
-      })
+      )
+
+      const results = await Promise.all(matchPromises)
+      const matchedPairs = results.filter((item): item is any => item !== null)
 
       // 2. คำนวณ Unread Messages (เช็คว่ามีข้อความจากผู้อื่นที่ยังไม่ได้อ่านไหม)
       const initialUnreadMap: { [key: string]: boolean } = {}
@@ -92,7 +90,6 @@ export default function LettersPage() {
         
         if (roomMessages.length > 0) {
           const lastMsg = roomMessages[roomMessages.length - 1]
-          // ถ้าข้อความล่าสุดไม่ได้มาจากตัวเอง และ ID ข้อความล่าสุดมากกว่าที่เคยกดอ่านไป
           if (lastMsg.sender_email !== session.user.email) {
             if (!lastReadMsgId || Number(lastMsg.id) > Number(lastReadMsgId)) {
               initialUnreadMap[match.id] = true
@@ -113,7 +110,6 @@ export default function LettersPage() {
   // เปิดแชทแล้วบันทึกว่าอ่านแล้ว
   const handleOpenChat = (match: any) => {
     setActiveChat(match)
-    // ลบจุดแดงของคดีนี้
     setUnreadMap(prev => ({ ...prev, [match.id]: false }))
   }
 
@@ -193,7 +189,7 @@ export default function LettersPage() {
         </div>
 
         {loading ? (
-          <div className="text-center text-white py-20 font-semibold">กำลังตรวจสอบเอกสารลับและรวบรวมเบาะแส...</div>
+          <div className="text-center text-white py-20 font-semibold">🔍 AI กำลังตรวจสอบเอกสารและวิเคราะห์สิ่งของสอดคล้องกัน...</div>
         ) : matches.length === 0 ? (
           <div className="text-center text-white py-20 bg-black/20 backdrop-blur-sm rounded-xl border border-white/10">
             <p className="text-lg">📭 ยังไม่มีจดหมายแจ้งเตือนเบาะแสที่เชื่อมโยงกันในขณะนี้</p>
@@ -208,8 +204,12 @@ export default function LettersPage() {
                   <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 w-4 h-4 bg-red-600 rounded-full shadow-md border border-red-800 z-20" />
 
                   <div className="flex justify-between items-center border-b border-amber-200 pb-3 mb-4">
-                    <span className="text-xs font-bold px-2.5 py-1 bg-yellow-300 text-gray-900 rounded-md">
-                      🎯 ความน่าจะเป็น: {match.matchScore}%
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-md ${
+                      match.matchScore >= 80 
+                        ? 'bg-emerald-200 text-emerald-900 border border-emerald-400' 
+                        : 'bg-yellow-300 text-gray-900'
+                    }`}>
+                      🎯 ความน่าจะเป็นจาก AI: {match.matchScore}%
                     </span>
                     <span className="text-[11px] text-gray-500">📅 {match.date}</span>
                   </div>
@@ -235,7 +235,7 @@ export default function LettersPage() {
                   </div>
 
                   <div className="mt-3 bg-amber-100/60 p-2.5 rounded border border-amber-200 text-[11px] text-amber-900">
-                    <p className="font-bold mb-1">🕵️‍♂️ ตรวจพบความคล้ายคลึงจาก:</p>
+                    <p className="font-bold mb-1">🕵️‍♂️ ตรวจพบความคล้ายคลึงจาก AI Detective:</p>
                     <ul className="list-disc list-inside space-y-0.5 text-[10px] text-amber-800">
                       {match.reasons.map((reason: string, idx: number) => (
                         <li key={idx}>{reason}</li>
@@ -244,7 +244,6 @@ export default function LettersPage() {
                   </div>
 
                   <div className="mt-4 pt-3 border-t border-amber-200 flex justify-end">
-                    {/* ปุ่มเปิดซองจดหมาย พร้อมจุดแจ้งเตือนสีแดง (Notification Badge) */}
                     <button 
                       onClick={() => handleOpenChat(match)}
                       className="relative px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1.5"
