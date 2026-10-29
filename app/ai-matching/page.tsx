@@ -10,14 +10,13 @@ export default function AIMatchingPage() {
   const router = useRouter()
 
   useEffect(() => {
-    async function runRealAIMatching() {
+    async function runMatching() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
         router.push('/login')
         return
       }
 
-      // 1. ดึงข้อมูลรายการของหายและของที่พบจาก Supabase
       const [lostRes, foundRes] = await Promise.all([
         supabase.from('lost_items').select('*').order('created_at', { ascending: false }),
         supabase.from('found_items').select('*').order('created_at', { ascending: false })
@@ -25,10 +24,11 @@ export default function AIMatchingPage() {
 
       const lostItems = lostRes.data || []
       const foundItems = foundRes.data || []
+      const validPairs: any[] = []
 
-      // 2. ส่งข้อมูลไปประมวลผลผ่าน Gemini API ใน Backend (`/api/ai-match`)
-      const matchPromises = lostItems.flatMap(lost =>
-        foundItems.map(async (found) => {
+      // วนลูปส่งวิเคราะห์ทีละคู่ เพื่อไม่ให้ติด Rate Limit
+      for (const lost of lostItems) {
+        for (const found of foundItems) {
           try {
             const res = await fetch('/api/ai-match', {
               method: 'POST',
@@ -36,41 +36,34 @@ export default function AIMatchingPage() {
               body: JSON.stringify({
                 lostItem: lost,
                 foundItem: found,
-                lostItemOwnerId: lost.user_id || lost.owner_id // ส่ง ID เจ้าของของหายไปส่งอีเมล
+                lostItemOwnerId: lost.user_id || lost.owner_id
               })
             })
 
             const data = await res.json()
 
-            // เก็บผลลัพธ์เฉพาะคู่ที่ AI จริงให้คะแนน >= 30%
-            if (data.success && data.matchScore >= 30) {
-              return {
+            // แสดงเฉพาะคู่ที่ได้คะแนน >= 20% (ปากกากับปากกาจะได้ 85%+ และจะแสดงแน่นอน)
+            if (data.success && data.matchScore >= 20) {
+              validPairs.push({
                 id: `${lost.id}-${found.id}`,
                 lost,
                 found,
                 matchScore: data.matchScore,
                 detectiveNotes: data.analysis
-              }
+              })
             }
           } catch (err) {
-            console.error('Matching Error:', err)
+            console.error('Fetch error:', err)
           }
-          return null
-        })
-      )
+        }
+      }
 
-      // รอให้ Gemini AI ประมวลผลเสร็จทุกคู่
-      const results = await Promise.all(matchPromises)
-      const validPairs = results.filter((item): item is any => item !== null)
-
-      // เรียงลำดับรายการที่มีคะแนนความสอดคล้องมากที่สุดขึ้นก่อน
       validPairs.sort((a, b) => b.matchScore - a.matchScore)
-
       setAnalyses(validPairs)
       setLoading(false)
     }
 
-    runRealAIMatching()
+    runMatching()
   }, [router])
 
   return (
@@ -87,9 +80,9 @@ export default function AIMatchingPage() {
         </div>
 
         {loading ? (
-          <div className="text-center text-white py-20 font-semibold">🔍 AI (Gemini) กำลังตรวจสอบลักษณะสิ่งของและวิเคราะห์หลักฐาน...</div>
+          <div className="text-center text-white py-20 font-semibold">🔍 AI กำลังตรวจสอบรายการสิ่งของและวิเคราะห์หลักฐาน...</div>
         ) : analyses.length === 0 ? (
-          <div className="text-center text-white py-20 bg-black/20 rounded-xl">📭 AI ไม่พบสิ่งของที่มีลักษณะสอดคล้องกัน</div>
+          <div className="text-center text-white py-20 bg-black/20 rounded-xl">📭 ไม่พบรายการที่มีความสอดคล้องกัน</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {analyses.map((item) => (
@@ -102,13 +95,11 @@ export default function AIMatchingPage() {
                       ? 'bg-emerald-200 text-emerald-900 border border-emerald-400' 
                       : 'bg-purple-200 text-purple-900'
                   }`}>
-                    🎯 ความมั่นใจของ AI: {item.matchScore}% {item.matchScore >= 80 ? '(ส่งอีเมลแจ้งเตือนแล้ว)' : ''}
+                    🎯 ความมั่นใจของ AI: {item.matchScore}% {item.matchScore >= 80 ? '(ส่งอีเมลแล้ว)' : ''}
                   </span>
                 </div>
 
-                {/* ส่วนแสดงรูปภาพและรายละเอียดเปรียบเทียบ */}
                 <div className="grid grid-cols-2 gap-3 text-xs mb-3">
-                  {/* ฝั่งของหาย */}
                   <div className="bg-white p-2 rounded border shadow-inner flex flex-col items-center text-center">
                     {item.lost.image_url && (
                       <div className="w-full h-24 rounded overflow-hidden mb-2 bg-gray-100">
@@ -119,7 +110,6 @@ export default function AIMatchingPage() {
                     <p className="text-gray-500 text-[10px]">📍 {item.lost.location}</p>
                   </div>
 
-                  {/* ฝั่งของที่พบ */}
                   <div className="bg-white p-2 rounded border shadow-inner flex flex-col items-center text-center">
                     {item.found.image_url && (
                       <div className="w-full h-24 rounded overflow-hidden mb-2 bg-gray-100">
