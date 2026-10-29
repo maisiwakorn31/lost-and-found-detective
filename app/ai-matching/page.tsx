@@ -43,7 +43,7 @@ export default function AIMatchingPage() {
             const data = await res.json()
 
             // แสดงเฉพาะคู่ที่ได้คะแนน >= 20% (ปากกากับปากกาจะได้ 85%+ และจะแสดงแน่นอน)
-            if (data.success && data.matchScore >= 80) {
+            if (data.success && data.matchScore >= 60) {
               validPairs.push({
                 id: `${lost.id}-${found.id}`,
                 lost,
